@@ -78,3 +78,12 @@ mkdir -p "$ROOT/发布"
 cp 公共财博弈-安装版.exe 公共财博弈-绿色版.zip "$ROOT/发布/"
 echo "✔ 完成：$ROOT/发布/"
 ls -la "$ROOT/发布/"
+
+# 传 GitHub Release 时注意：附件名会被 GitHub 剥掉中文，只剩 "-.exe"。
+# 上传必须改用 ASCII 名，例如：
+#   gh release create v1.0.0 发布/公共财博弈-安装版.exe 发布/公共财博弈-绿色版.zip   ← 会坏
+#   正解是用 API 逐条传，并在 URL 里指定 name：
+#   curl -X POST -H "Authorization: Bearer $(gh auth token)" \
+#        -H "Content-Type: application/octet-stream" \
+#        --data-binary @"发布/公共财博弈-安装版.exe" \
+#        "https://uploads.github.com/repos/<owner>/<repo>/releases/<id>/assets?name=PublicGoodsGame-Setup.exe"

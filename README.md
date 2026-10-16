@@ -8,6 +8,8 @@
 
 ## 运行
 
+Windows 用户直接下载发行包：**<https://github.com/Kael-Entropy/public-goods-game/releases>**
+
 游戏跑在你自己的机器上，用独立窗口游玩。
 
 | 方式 | 怎么做 |
