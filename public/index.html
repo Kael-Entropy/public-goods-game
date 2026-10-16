@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>公共财博弈 · 推理博弈</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- 底层：圆桌场景（桌子 + 桌心公共箱 + 十人围坐，JS 极坐标定位） -->
+<div id="scene">
+  <div class="table-outer"></div>
+  <div class="table-inner"></div>
+  <div class="chest-wrap" id="chestZone">
+    <img src="assets/chest_128.png" alt="" class="chest-img">
+    <div class="chest-pot"><img class="cico" src="assets/coin_16.png" alt=""><span id="chestTotal">—</span></div>
+    <div class="chest-sub" id="chestHint"></div>
+  </div>
+  <div id="seats"></div>
+</div>
+
+<!-- 顶部：浮空资产面板（当前持有 + 本轮变化）+ 倒计时环 -->
+<header id="assetBar" class="top">
+  <div class="ab-left">
+    <div class="ab-round" id="abRound"></div>
+    <div class="ab-timer" id="abTimer"><span id="abTimerText">–</span></div>
+  </div>
+  <div class="ab-list" id="abList"></div>
+  <div class="ab-ctrl">
+    <button class="btn sm" id="btnSkip" title="立刻结束当前阶段">跳过阶段</button>
+    <button class="btn sm" id="btnReset" title="回到建房界面">重开</button>
+  </div>
+</header>
+
+<!-- 左侧：对话面板（常驻；仅讨论期且身处通话中才可操作） -->
+<aside id="chatPanel" class="panel">
+  <h2>密谈频道</h2>
+  <div id="callCard"></div>
+  <div id="chatBody" class="chat-body"></div>
+  <div id="chatInput" class="chat-input"></div>
+</aside>
+
+<!-- 中央：半透明常驻卡片（公示记录 + 事件 + 调试监听） -->
+<section id="infoPanel" class="panel glass">
+  <div class="ip-tabs">
+    <button class="ip-tab on" data-t="hist">公示记录</button>
+    <button class="ip-tab" data-t="log">事件</button>
+    <button class="ip-tab" data-t="spy">监听(调试)</button>
+    <button class="ip-tab ghost" id="btnLastResult" style="display:none" title="回看上一局的最终战报">上局战报</button>
+  </div>
+  <div id="hist" class="ip-pane hist"></div>
+  <div id="log" class="ip-pane log" style="display:none"></div>
+  <div id="spy" class="ip-pane" style="display:none"></div>
+</section>
+
+<!-- 右侧：阶段操作面板（投资/投票/讨论-赠与/评分轮流占用） -->
+<aside id="stagePanel" class="panel">
+  <div id="stageHead" class="stage-head"></div>
+  <div id="stage" class="stage-body"></div>
+</aside>
+
+<!-- 建房 / 结果 全屏浮层 -->
+<div id="lobby" class="overlay" style="display:none"></div>
+<div id="errStick" style="display:none"></div>
+<div id="toast"></div>
+
+<script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,13 @@
+{
+  "name": "pgg-relay",
+  "version": "1.0.0",
+  "private": true,
+  "description": "公共财博弈 · 联机中继（纯转发，不含游戏规则，不托管网页）",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "ws": "^8.22.0"
+  }
+}

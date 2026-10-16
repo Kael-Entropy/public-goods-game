@@ -1,0 +1,7 @@
+node_modules/
+*.log
+.DS_Store
+Thumbs.db
+
+# 打包产物太大，不要进 git 仓库（走 GitHub Release 附件分发）
+发布/
