@@ -72,7 +72,11 @@ async function boot() {
     show: true,
     webPreferences: { contextIsolation: true, nodeIntegration: false, backgroundThrottling: false },
   });
+  // 窗口建好就主动抢一次焦点：否则它可能被别的窗口挡在后面，
+  // 用户看到的就是"启动器说已打开，但屏幕上什么都没有"
+  win.once('ready-to-show', () => { try { win.show(); win.focus(); } catch {} });
   win.loadURL(URL_).then(async () => {
+    try { win.focus(); } catch {}
     console.log('[electron] 窗口已加载', URL_);
     if (process.env.PGG_SHOT) {           // 自动验证：截一张图然后退出
       await new Promise(r => setTimeout(r, Number(process.env.PGG_SHOT_WAIT) || 1800));

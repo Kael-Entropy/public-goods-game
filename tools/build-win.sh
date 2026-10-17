@@ -32,9 +32,9 @@ mkdir -p "$CACHE"
 unzip -q -o "$ZIP" -d runtime
 
 echo "▶ 2/5 准备应用目录（只装运行时依赖，不装 devDependencies）"
-mkdir -p 游戏
-cp -r "$ROOT"/server "$ROOT"/public "$ROOT"/electron 游戏/
-cat > 游戏/package.json <<EOF
+mkdir -p app
+cp -r "$ROOT"/server "$ROOT"/public "$ROOT"/electron app/
+cat > app/package.json <<EOF
 {
   "name": "public-goods-game",
   "version": "0.1.0",
@@ -44,7 +44,7 @@ cat > 游戏/package.json <<EOF
   "dependencies": { "ws": "^8.22.0" }
 }
 EOF
-(cd 游戏 && npm install --omit=dev --no-audit --no-fund --loglevel=error)
+(cd app && npm install --omit=dev --no-audit --no-fund --loglevel=error)
 
 echo "▶ 3/5 编启动器 exe（带图标）"
 if command -v convert >/dev/null && [ -f "$ROOT/public/assets/coin_128.png" ]; then
@@ -60,18 +60,20 @@ x86_64-w64-mingw32-gcc -municode -mwindows -O2 -o 启动游戏.exe \
   "$ROOT/launcher/launcher.c" $ICON_OBJ -lws2_32 -lshell32 -luser32
 
 echo "▶ 4/5 组装发行目录"
-mkdir -p 公共财博弈
-cp 启动游戏.exe 公共财博弈/
-cp -r runtime 公共财博弈/运行时
-cp -r 游戏 公共财博弈/游戏
-rm -f 公共财博弈/运行时/resources/default_app.asar
-for f in 公共财博弈/运行时/locales/*.pak; do
+mkdir -p dist
+cp 启动游戏.exe dist/
+cp -r runtime dist/runtime
+cp -r app dist/app
+# 保留 resources/default_app.asar：删掉它 Electron 启动时可能因为找不到默认应用而直接退出
+for f in dist/runtime/locales/*.pak; do
   case "$(basename "$f")" in zh-CN.pak|en-US.pak) ;; *) rm -f "$f";; esac
 done
 
 echo "▶ 5/5 编安装程序 + 打绿色包"
 cp "$ROOT/tools/installer.nsi" .
+# installer.nsi 里引用的是 dist\*.*，编完安装程序后再改名打包绿色版
 makensis installer.nsi
+mv dist 公共财博弈
 zip -r -9 -q 公共财博弈-绿色版.zip 公共财博弈
 
 mkdir -p "$ROOT/发布"

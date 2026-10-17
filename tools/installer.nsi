@@ -9,7 +9,8 @@ Unicode true
 
 Name        "${APPNAME}"
 OutFile     "公共财博弈-安装版.exe"
-InstallDir  "$LOCALAPPDATA\公共财博弈"
+InstallDir  "$LOCALAPPDATA\PublicGoodsGame"   ; 装到 ASCII 路径：中文安装目录对 Electron 有风险
+                                              ; （快捷方式、开始菜单、开始菜单文件夹仍是中文）
 RequestExecutionLevel user          ; 装到当前用户目录，不弹 UAC、不需要管理员
 SetCompressor /SOLID lzma
 SetCompressorDictSize 64
