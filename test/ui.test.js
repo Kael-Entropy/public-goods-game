@@ -426,5 +426,56 @@ console.log('\n[UI-18] 输入框不能被后台刷新冲掉');
   ok($(b2.w, 'cfgSeats').value === '8', '服务端推状态时，改了一半的席位不会被冲回默认值');
 }
 
+console.log('\n[UI-19] 团队达标线：建房可改、桌面上看得见进度');
+{
+  const st = E.publicState(E.createRoom({}));
+  const { w, inst, sent } = bootAs(st, { you: { pid: 'p1', spectate: false } });
+
+  const target = $(w, 'cfgTarget');
+  ok(!!target, '建房页有团队达标线输入框');
+  ok(target && target.value === '20', '默认达标线是 20');
+
+  // 改完之后点开始游戏，值要跟着配置一起发给服务端
+  sent.length = 0;
+  $(w, 'cfgTarget').value = '35';
+  $(w, 'btnStart').click();
+  const cfgMsg = sent.filter(m => m.type === 'config').pop();
+  ok(cfgMsg && cfgMsg.config.targetAvgCoins === 35, '改过的达标线会随配置上报');
+
+  // 桌心要一直挂着进度：人均多少 / 目标多少
+  inst.onmessage({ data: JSON.stringify({ type: 'state', roomId: 'ABCD',
+    state: { ...E.publicState(E.createRoom({ targetAvgCoins: 20 })), phase: 'lobby' } }) });
+  const goal = $(w, 'chestGoal');
+  ok(goal && goal.textContent.includes('达标 20'), '箱子下方显示达标线');
+  ok(goal && goal.textContent.includes('人均 10'), '开局时人均显示为初始的 10');
+  ok(goal && !goal.className.includes('ok'), '没达标时不显示已过关样式');
+
+  // 人均够了就该翻绿
+  const rich = E.createRoom({ targetAvgCoins: 20 });
+  for (const p of rich.players) p.coins = 30;
+  inst.onmessage({ data: JSON.stringify({ type: 'state', roomId: 'ABCD',
+    state: { ...E.publicState(rich), phase: 'lobby' } }) });
+  const okGoal = $(w, 'chestGoal');
+  ok(okGoal && okGoal.className.includes('ok'), '人均达标后进度条转为已过关样式');
+  ok(okGoal && okGoal.textContent.includes('已过关'), '达标时明确写出已过关');
+
+  // 全员摆烂的一局：战报必须说清楚"为什么没人赢"，否则玩家只会盯着名次发懵
+  const poor = E.createRoom({ targetAvgCoins: 20 });
+  for (let r = 1; r <= 6; r++) {
+    E.beginInvest(poor);
+    for (const p of poor.players) E.submitInvestment(poor, p.id, 0);
+    E.settleRound(poor); E.beginDiscuss(poor);
+  }
+  E.beginScoring(poor);
+  for (const p of poor.players) { const rt = {}; for (const q of poor.players) rt[q.id] = 5; E.submitRating(poor, p.id, rt); }
+  const poorRes = E.finalize(poor);
+  inst.onmessage({ data: JSON.stringify({ type: 'state', roomId: 'ABCD',
+    state: { ...E.publicState(poor), phase: 'over', result: poorRes } }) });
+  const card = $(w, 'lobby').textContent;
+  ok(card.includes('团队未达标'), '未达标的战报里写明团队未达标');
+  ok(card.includes('无人获胜'), '战报里写明本局无人获胜');
+  ok(poorRes.winners.length === 0, '未达标时不产生任何赢家');
+}
+
 console.log(fail === 0 ? '\n前端全部通过\n' : `\n${fail} 项未通过\n`);
 process.exit(fail === 0 ? 0 : 1);

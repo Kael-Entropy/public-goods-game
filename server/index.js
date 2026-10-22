@@ -429,6 +429,7 @@ function sanitizeCfg(c = {}) {
   put('maxInvestPerRound', 0, 999);
   put('voteThreshold', 2, 12);
   put('topWinners', 1, 12);
+  put('targetAvgCoins', 0, 999);   // 团队达标线：0 = 不设门槛
   put('investSeconds', 5, 300);
   put('voteSeconds', 5, 300);
   put('discussSeconds', 5, 600);
@@ -540,7 +541,7 @@ function handleRoom(ws, room, msg) {
     case 'config': {
       if (st.phase !== 'lobby' && st.phase !== 'over') return send(ws, { type: 'error', msg: '游戏进行中不可改配置' });
       const c = msg.config || {};
-      for (const k of ['seats', 'rounds', 'multiplier', 'maxInvestPerRound', 'investSeconds', 'voteSeconds', 'discussSeconds', 'scoringSeconds', 'settleSeconds', 'voteThreshold', 'topWinners']) {
+      for (const k of ['seats', 'rounds', 'multiplier', 'maxInvestPerRound', 'investSeconds', 'voteSeconds', 'discussSeconds', 'scoringSeconds', 'settleSeconds', 'voteThreshold', 'topWinners', 'targetAvgCoins']) {
         if (c[k] !== undefined) st.config[k] = Number(c[k]);
       }
       if (c.giftVisibility !== undefined && ['full', 'total', 'secret'].includes(String(c.giftVisibility))) {

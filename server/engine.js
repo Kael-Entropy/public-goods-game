@@ -22,6 +22,11 @@ export const DEFAULTS = {
   giftVisibility: 'total', // 赠与公示方式：full=全公开 / total=只公示笔数与总额 / secret=不公示
   giftRatingPenalty: 0.8,  // 被赠予者给赠予者打分时，其金币权重打这个折（1 = 关闭）。买来的票打折。
   topWinners: 4,      // 获胜名额（建房可改）
+  // 团队达标线：结束时人均金币达不到这个数，全员失败（无人获胜）。0 = 不设门槛。
+  // 默认 20 = 初始金币的 2 倍。数学上「平均金币 = 初始 + 人均累计投入」，
+  // 所以这条线等于"每个人都把自己最初的本金完整投入过一遍"：
+  // 全不投 10、半数人每轮投 2 是 16、全员敷衍投 1 也是 16，都过不了；全员认真投 2 到 22，刚好过。
+  targetAvgCoins: 20,
   rateMin: 1,
   rateMax: 5,
   defaultRating: 3,      // 未打分时的兜底值
@@ -35,6 +40,8 @@ export function createRoom(cfg = {}) {
   const config = { ...DEFAULTS, ...cfg };
   config.seats = clampInt(config.seats, 2, 12);
   config.multiplier = Number(config.multiplier) || DEFAULTS.multiplier;
+  // 达标线：0 或留空 = 不设门槛；上限给到 999，别让建房手滑填出无法达成的数
+  config.targetAvgCoins = clampInt(config.targetAvgCoins ?? DEFAULTS.targetAvgCoins, 0, 999);
 
   const players = [];
   for (let i = 0; i < config.seats; i++) {
@@ -393,11 +400,25 @@ export function finalize(state) {
 
   ranked.forEach((x, i) => { x.rank = i + 1; x.win = i < state.config.topWinners; });
 
+  // 团队达标线：全场懒到一定程度，谁也别想赢。
+  // 这条线只看平均水平，不看个人——所以它惩罚的是"集体摆烂"，而不是某个搭便车的人。
+  const seatCount = players.length || 1;
+  const avgCoins = Math.round((totalCoins / seatCount) * 10) / 10;
+  const target = Number(state.config.targetAvgCoins) || 0;
+  const met = target <= 0 || avgCoins >= target;
+  if (!met) {
+    for (const x of ranked) x.win = false;
+    pushLog(state, `团队未达标：人均 ${avgCoins} 金币，未达到 ${target}，本局无人获胜`);
+  } else if (target > 0) {
+    pushLog(state, `团队达标：人均 ${avgCoins} 金币（门槛 ${target}）`);
+  }
+
   state.result = {
     totalCoins,
     giftRatingPenalty: pen,
+    goal: { target, avg: avgCoins, met },
     ranked,
-    winners: ranked.slice(0, state.config.topWinners).map(x => x.id),
+    winners: met ? ranked.slice(0, state.config.topWinners).map(x => x.id) : [],
   };
   state.phase = 'over';
   pushLog(state, '游戏结束');
@@ -480,6 +501,7 @@ export function publicState(state) {
       maxCallMembers: state.config.maxCallMembers,
       topWinners: state.config.topWinners,
       maxInvestPerRound: state.config.maxInvestPerRound,
+      targetAvgCoins: state.config.targetAvgCoins,
       giftVisibility: state.config.giftVisibility,
       giftRatingPenalty: state.config.giftRatingPenalty,
       investSeconds: state.config.investSeconds,
@@ -497,6 +519,8 @@ export function publicState(state) {
     investDone: Object.keys(state.invest[state.round] || {}).length,
     voteDone: Object.keys(state.votes[state.round] || {}).length,
     ratingDone: Object.keys(state.ratings).length,
+    // 当前人均金币：UI 上画达标进度条用（服务端算好，省得每个客户端各算一遍）
+    avgCoins: Math.round((state.players.reduce((s, p) => s + p.coins, 0) / (state.players.length || 1)) * 10) / 10,
     calls: state.calls.map(c => ({ id: c.id, members: c.members.slice(), pending: c.pending.slice() })),
     gifts: publicGifts(state, state.round),
     history: state.history.map(publicSummary),

@@ -187,5 +187,57 @@ ok(Object.keys(E.receivedBy(s3, 'p1')).length === 1 && E.receivedBy(s3, 'p1').p2
 ok(Object.keys(E.sentBy(s3, 'p2')).length === 1 && E.sentBy(s3, 'p2').p1 === 10, 'sentBy：p2 只看到自己送出给 p1 的 10 枚');
 ok(Object.keys(E.receivedBy(s3, 'p3')).length === 0, '没参与赠与的人，receivedBy 为空');
 
+console.log('\n[12] 团队达标线');
+{
+  // 统一给全场打 5 分，隔离评分差异，只看达标与否对胜负的影响
+  const runScenario = (investFn, cfg = {}) => {
+    const s = E.createRoom({ seats: 10, rounds: 6, multiplier: 2, ...cfg });
+    for (let r = 1; r <= 6; r++) {
+      E.beginInvest(s);
+      for (const p of s.players) E.submitInvestment(s, p.id, investFn(p, s));
+      E.settleRound(s);
+      E.beginDiscuss(s);
+    }
+    E.beginScoring(s);
+    for (const p of s.players) { const rt = {}; for (const q of s.players) rt[q.id] = 5; E.submitRating(s, p.id, rt); }
+    const res = E.finalize(s);
+    const avg = s.players.reduce((a, p) => a + p.coins, 0) / s.players.length;
+    return { res, avg, view: E.publicState(s) };
+  };
+
+  // 全不投：总盘原地不动，人均停在初始的 10
+  const lazy = runScenario(() => 0);
+  ok(lazy.avg === 10, '全不投时人均停在初始的 10 金币');
+  ok(lazy.res.goal.target === 20 && lazy.res.goal.avg === 10 && lazy.res.goal.met === false, '全不投：达标判定为 false');
+  ok(lazy.res.winners.length === 0, '全不投：没人获胜');
+  ok(lazy.res.ranked.every(x => x.win === false), '全不投：所有人的 win 标记都被清掉');
+  ok(lazy.res.ranked.length === 10, '名次照常排出（只是不产生赢家）');
+
+  // 全员每轮投 2：人均 22，刚好过线
+  const coop = runScenario(p => Math.min(2, p.coins));
+  ok(coop.avg === 22, '全员每轮投 2 → 人均 22');
+  ok(coop.res.goal.met === true, '达标：met 为 true');
+  ok(coop.res.winners.length === 4, '达标：按获胜名额产生 4 名赢家');
+
+  // 阈值设在中间：全员投 2（22）不够了，必须更卖力
+  const strict = runScenario(p => Math.min(2, p.coins), { targetAvgCoins: 25 });
+  ok(strict.avg === 22 && strict.res.goal.met === false, '阈值 25 时人均 22 不达标');
+  ok(strict.res.winners.length === 0, '阈值 25：全员投 2 仍然无人获胜');
+
+  // 阈值 0 = 不设门槛，回到老规则
+  const off = runScenario(() => 0, { targetAvgCoins: 0 });
+  ok(off.res.goal.met === true, '阈值 0 表示不设门槛');
+  ok(off.res.winners.length === 4, '不设门槛时全不投也照常选出赢家');
+
+  // 客户端要能拿到进度：当前人均 + 目标值
+  ok(coop.view.avgCoins === 22, 'publicState 下发当前人均金币');
+  ok(coop.view.config.targetAvgCoins === 20, 'publicState 下发达标线配置');
+
+  // 建房乱填要给兜住，不能造出无法达成或负数的线
+  ok(E.createRoom({ targetAvgCoins: -5 }).config.targetAvgCoins === 0, '负数达标线被钳到 0');
+  ok(E.createRoom({ targetAvgCoins: 99999 }).config.targetAvgCoins === 999, '超大达标线被钳到 999');
+  ok(E.createRoom({}).config.targetAvgCoins === 20, '默认达标线是 20');
+}
+
 console.log(fail === 0 ? '\n全部通过\n' : `\n${fail} 项未通过\n`);
 process.exit(fail === 0 ? 0 : 1);

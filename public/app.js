@@ -237,6 +237,21 @@ function renderChest() {
   else if (S.phase === 'settle' && last) { t.textContent = last.total; h.textContent = `×${S.config.multiplier} → 每份 ${last.payout}`; }
   else if (last) { t.textContent = last.total; h.textContent = `第 ${last.round} 轮 · 每份 ${last.payout}`; }
   else { t.textContent = '0'; h.textContent = S.config.seats + ' 人就座，等待开局'; }
+  renderGoal();
+}
+
+// 团队达标进度：让"再不投就要团灭"这件事一直摆在桌子正中间
+function renderGoal() {
+  const box = $('chestGoal'); if (!box) return;
+  const target = Number(S.config.targetAvgCoins) || 0;
+  if (!target) { box.style.display = 'none'; return; }
+  const avg = S.avgCoins ?? 0;
+  const pct = Math.max(0, Math.min(100, Math.round(avg / target * 100)));
+  const met = avg >= target;
+  box.style.display = '';
+  box.classList.toggle('ok', met);
+  box.innerHTML = `<div class="cg-txt">人均 ${avg} / 达标 ${target}${met ? ' · 已过关' : ''}</div>
+    <div class="cg-bar"><div class="cg-fill" style="width:${pct}%"></div></div>`;
 }
 
 // ---------------------------------------------------------------- 金币飞行动画
@@ -1134,7 +1149,9 @@ function renderLobby(box) {
       每轮上限<input type="number" id="cfgCap" value="${c.maxInvestPerRound}" min="0" max="999" style="width:64px" title="0 表示不限制，可投入 0~当前持有">
       投票门槛<input type="number" id="cfgVT" value="${c.voteThreshold}" min="2" max="12" style="width:60px">
       获胜名额<input type="number" id="cfgTopW" value="${c.topWinners}" min="1" max="12" style="width:60px">
+      团队达标线<input type="number" id="cfgTarget" value="${c.targetAvgCoins ?? 20}" min="0" max="999" style="width:64px" title="结束时人均金币达不到这个值，全员失败、无人获胜；填 0 表示不设门槛">
     </div>
+    <div class="row"><span class="muted">团队达标线：打完全部轮次时，人均金币必须达到这个数才算过关，达不成则<b>本局无人获胜</b>（评分再高也白搭）。默认 20 ≈ 每人把最初的 10 枚本金完整投入一遍 —— 全员敷衍投 1 只有 16，过不了；全员认真投 2 到 22，刚好过。填 0 表示不设门槛。</span></div>
     <div class="row">
       投资秒<input type="number" id="cfgI" value="${c.investSeconds}" style="width:60px">
       投票秒<input type="number" id="cfgV" value="${c.voteSeconds}" style="width:60px">
@@ -1191,6 +1208,7 @@ function pushConfig() {
     settleSeconds: +$('cfgS').value, players,
     maxInvestPerRound: +$('cfgCap').value, giftVisibility: $('cfgGiftV').value,
     topWinners: +$('cfgTopW').value, giftRatingPenalty: +$('cfgGiftPen').value,
+    targetAvgCoins: +($('cfgTarget')?.value ?? 20),
   } });
 }
 // ---------------------------------------------------------------- 结果
@@ -1222,8 +1240,24 @@ function resultCardHtml(r) {
       <h2>最终结果</h2>
       <div class="muted">总盘 ${r.totalCoins} 金币 · 计分 = Σ(打分人金币占比 × 他给你的分)${on ? ` × ${Math.round(pen * 100)}%（若你曾赠与他）` : ''}</div>
     </div>
+    ${goalBannerHtml(r)}
     <div class="podium">${pod}</div>
     <div style="margin:10px 0">${rows}</div>`;
+}
+
+// 团队达标结果横幅。没达标时它是全篇最重要的一句话——不然玩家只会盯着自己的名次发懵
+function goalBannerHtml(r) {
+  const g = r.goal;
+  if (!g || !g.target) return '';
+  if (g.met) {
+    return `<div class="row" style="margin:8px 0">
+      <span class="pill">团队达标</span>
+      <span class="muted">人均 ${g.avg} 金币，达到 ${g.target} 的及格线，名次有效。</span></div>`;
+  }
+  return `<div class="row" style="margin:8px 0;align-items:flex-start">
+    <span class="pill warn">团队未达标 · 无人获胜</span>
+    <span class="muted">终局人均只有 <b>${g.avg}</b> 金币，没够到 <b>${g.target}</b> 的达标线 —— 这一局谁都算输，
+      评分和名次只是记录，不产生赢家。想赢下一局就得让箱子里的钱真滚起来。</span></div>`;
 }
 
 // 战报留档：哪怕玩家手滑开了新局，这份也还能翻回来
