@@ -78,7 +78,8 @@ function onWsMessage(ev) {
     syncSeat();
     render();
   }
-  else if (m.type === 'rooms') { ROOMS = m.rooms || []; if (m.relay !== undefined) RELAY_UP = m.relay; if (!inRoom) renderHall(); }
+  // 房间列表刷新：只换列表那一块，别把人家正在填的房间名/房号冲掉
+  else if (m.type === 'rooms') { ROOMS = m.rooms || []; if (m.relay !== undefined) RELAY_UP = m.relay; if (!inRoom) renderHallRooms(); }
   else if (m.type === 'room:created') { toast(`房间 ${m.roomId} 已建好`); }
   else if (m.type === 'state') {
     const prev = S; S = m.state; if (m.roomId) ROOM_ID = m.roomId; if (prev) S._invMax = prev._invMax;
@@ -860,32 +861,79 @@ function bindStage() {
   });
 }
 
+// ---------------------------------------------------------------- 输入保护
+// 大厅和建房页都是「整块 innerHTML 重建」的画法。重建一次，正在进行的输入就废一次：
+// 值被冲回服务端那份、光标丢失、中文输入法打到一半的组合也会被掐断。
+// 所以每次重建前后都要把「用户改过的值」和「焦点 / 光标位置」原样搬回去。
+//
+// 判断「用户改过」靠 _v0：渲染结束时给每个输入框记一份基线值，
+// 重建时只有偏离基线的字段才回填 —— 这样别人改了配置、服务端推来的新值不会被本地旧值盖掉。
+// 选择器转义：只用在属性值里，转义引号和反斜杠就够了（jsdom 里没有 CSS.escape）
+function cssEsc(s) { return String(s).replace(/["\\]/g, m => '\\' + m); }
+function inputKey(n) {
+  if (n.id) return '#' + n.id;
+  for (const a of ['nm', 'kind', 'base', 'key', 'model']) {
+    if (n.dataset[a]) return `[data-${a}="${cssEsc(n.dataset[a])}"]`;
+  }
+  return '';
+}
+function markInputs(root) {
+  root.querySelectorAll('input, select, textarea').forEach(n => { n._v0 = n.value; n._c0 = !!n.checked; });
+}
+function snapshotInputs(root) {
+  const fields = [];
+  root.querySelectorAll('input, select, textarea').forEach(n => {
+    const k = inputKey(n); if (!k) return;
+    const toggler = (n.type === 'checkbox' || n.type === 'radio');
+    // _dirty = 上一轮重建时判定过的"用户还没提交的改动"。只看值差会漏：
+    // 回填之后值就等于基线了，第二次重建会把它当成没动过而丢掉。
+    if (n._dirty || (toggler ? (!!n.checked !== !!n._c0) : (n.value !== n._v0))) {
+      fields.push({ k, value: n.value, checked: !!n.checked });
+    }
+  });
+  let sel = null;
+  const act = document.activeElement;
+  if (act && root.contains(act)) {
+    const k = inputKey(act);
+    if (k) {
+      let s = null, e = null;
+      try { s = act.selectionStart; e = act.selectionEnd; } catch {}   // number/checkbox 读光标会抛
+      sel = { k, s, e };
+    }
+  }
+  return { fields, sel };
+}
+function restoreInputs(root, snap) {
+  markInputs(root);                 // 基线先按服务端这份值建好，回填不会污染它
+  if (!snap) return;
+  for (const f of snap.fields) {
+    let n = null; try { n = root.querySelector(f.k); } catch {}
+    if (!n) continue;
+    const toggler = (n.type === 'checkbox' || n.type === 'radio');
+    const before = toggler ? n.checked : n.value;      // 服务端这次给的值
+    if (toggler) n.checked = f.checked; else n.value = f.value;
+    // 回填后若跟服务端这份不同，说明用户还有没提交的改动，往后每次重建都继续保住它；
+    // 改回跟服务端一样了就解除，之后乖乖跟着服务端走。
+    n._dirty = (before !== (toggler ? n.checked : n.value));
+  }
+  if (snap.sel) {
+    let n = null; try { n = root.querySelector(snap.sel.k); } catch {}
+    if (n) {
+      try { n.focus({ preventScroll: true }); } catch {}
+      if (snap.sel.s != null) { try { n.setSelectionRange(snap.sel.s, snap.sel.e); } catch {} }
+    }
+  }
+  markInputs(root);
+}
+
 // ---------------------------------------------------------------- 房间大厅（未进房时的全屏浮层）
 // 建房 / 从网络房间列表里挑一个加入 / 密码房输口令
 function renderHall() {
   const box = $('lobby'); if (!box) return;
+  const snap = snapshotInputs(box);
+  const _roomsHtml = hallRoomsHtml();
   document.body.classList.add('overlay-on');
   box.style.display = '';
-
-  const rows = ROOMS.map(r => {
-    if (passFor && passFor === r.id) {
-      return `<tr><td colspan="5">
-        <div class="row">进入「${esc(r.name)}」需要密码
-          <input type="password" id="hallPass" placeholder="房间密码" style="width:140px">
-          <button class="btn sm primary" id="btnHallPass" data-room="${esc(r.id)}">进入</button>
-          <button class="btn sm" id="btnHallPassCancel">取消</button></div>
-      </td></tr>`;
-    }
-    const st = r.playing ? `进行中 · 第 ${r.round} 轮`
-      : (r.phase === 'over' ? '已结束 · 可回看战报' : '等待开始');
-    return `<tr>
-      <td><b>${esc(r.id)}</b>${r.online ? ' <span class="pill">网络</span>' : ' <span class="pill">本机</span>'}</td>
-      <td>${esc(r.name)}${r.locked ? ' <span class="pill">密码</span>' : ''}</td>
-      <td>${r.humans}/${r.seats} 人${r.watchers ? ` · ${r.watchers} 观战` : ''}</td>
-      <td>${st}</td>
-      <td><button class="btn sm" data-join="${esc(r.id)}" data-locked="${r.locked ? '1' : ''}">加入</button></td>
-    </tr>`;
-  }).join('');
 
   box.innerHTML = `<div class="card">
     <h2 style="font-size:18px;margin-bottom:2px">公共财博弈 · 房间大厅</h2>
@@ -894,9 +942,7 @@ function renderHall() {
 
     <h3 style="margin-top:12px">网络联机</h3>
     <div class="row" style="gap:10px">
-      ${RELAY_UP
-        ? `<span class="pill">已连中继</span><span class="muted">列表里带「网络」的房间来自互联网，挑一个进去就行。</span>`
-        : `<span class="pill">未连接</span><span class="muted">现在只能玩本机房间（单机 / AI 对局）。中继连上后会自动出现网络房间。</span>`}
+      <span id="hallRelay">${relayStateHtml()}</span>
       我的昵称<input type="text" id="nickName" maxlength="12" value="${esc(NICK)}" style="width:120px">
     </div>
 
@@ -921,14 +967,62 @@ function renderHall() {
       <span class="muted">开房的人把 4 位房号发给你，输入即可入座</span>
     </div>
 
-    <h3 style="margin-top:12px">现有房间（${ROOMS.length}）</h3>
-    ${ROOMS.length
-      ? `<div class="scroll"><table class="cfg">
-          <tr><th>房号</th><th>房间名</th><th>人数</th><th>状态</th><th></th></tr>${rows}</table></div>`
-      : '<div class="muted">现在一个房间都没有。上面建一个，或者让开房的人把房号发给你。</div>'}
+    <h3 style="margin-top:12px">现有房间（<span id="hallRoomCount">${ROOMS.length}</span>）</h3>
+    <div id="hallRoomList">${_roomsHtml}</div>
 
     <div class="hint">十个人围坐一张桌子，每轮把金币投进中间那只箱子。箱内总额翻倍后全员平分 —— 不投的人照样分红。合作只能靠投票、赠与和密谈逼出来。</div>
   </div>`;
+  const _hl = box.querySelector('#hallRoomList'); if (_hl) _hl._html = _roomsHtml;
+  restoreInputs(box, snap);
+}
+
+function relayStateHtml() {
+  return RELAY_UP
+    ? `<span class="pill">已连中继</span><span class="muted">列表里带「网络」的房间来自互联网，挑一个进去就行。</span>`
+    : `<span class="pill">未连接</span><span class="muted">现在只能玩本机房间（单机 / AI 对局）。中继连上后会自动出现网络房间。</span>`;
+}
+
+// 房间列表单独成块：定时刷新只换这一块，建房/房号那些输入框根本不碰
+function hallRoomsHtml() {
+  const rows = ROOMS.map(r => {
+    if (passFor && passFor === r.id) {
+      return `<tr><td colspan="5">
+        <div class="row">进入「${esc(r.name)}」需要密码
+          <input type="password" id="hallPass" placeholder="房间密码" style="width:140px">
+          <button class="btn sm primary" id="btnHallPass" data-room="${esc(r.id)}">进入</button>
+          <button class="btn sm" id="btnHallPassCancel">取消</button></div>
+      </td></tr>`;
+    }
+    const st = r.playing ? `进行中 · 第 ${r.round} 轮`
+      : (r.phase === 'over' ? '已结束 · 可回看战报' : '等待开始');
+    return `<tr>
+      <td><b>${esc(r.id)}</b>${r.online ? ' <span class="pill">网络</span>' : ' <span class="pill">本机</span>'}</td>
+      <td>${esc(r.name)}${r.locked ? ' <span class="pill">密码</span>' : ''}</td>
+      <td>${r.humans}/${r.seats} 人${r.watchers ? ` · ${r.watchers} 观战` : ''}</td>
+      <td>${st}</td>
+      <td><button class="btn sm" data-join="${esc(r.id)}" data-locked="${r.locked ? '1' : ''}">加入</button></td>
+    </tr>`;
+  }).join('');
+  return ROOMS.length
+    ? `<div class="scroll"><table class="cfg">
+        <tr><th>房号</th><th>房间名</th><th>人数</th><th>状态</th><th></th></tr>${rows}</table></div>`
+    : '<div class="muted">现在一个房间都没有。上面建一个，或者让开房的人把房号发给你。</div>';
+}
+
+// 每 5 秒一次的房间列表刷新走这里：只更新列表块，且内容没变就完全不动
+function renderHallRooms() {
+  const box = $('lobby'); if (!box) return;
+  const host = box.querySelector('#hallRoomList');
+  if (!host) { renderHall(); return; }          // 大厅还没渲染过，走全量
+  const rs = box.querySelector('#hallRelay');    // 中继连通性不在列表块里，单独刷
+  if (rs) { const h = relayStateHtml(); if (rs.innerHTML !== h) rs.innerHTML = h; }
+  const html = hallRoomsHtml();
+  if (html === host._html) return;               // 列表没变就一个字都不动
+  const snap = snapshotInputs(host);
+  host._html = html;
+  host.innerHTML = html;
+  restoreInputs(host, snap);
+  const c = box.querySelector('#hallRoomCount'); if (c) c.textContent = ROOMS.length;
 }
 
 function createRoom() {
@@ -985,6 +1079,7 @@ function renderOverlay() {
 }
 
 function renderLobby(box) {
+  const snap = snapshotInputs(box);   // 服务端推状态会重建这块，别把改了一半的配置冲掉
   const c = S.config;
   let rows = '';
   for (const p of S.players) {
@@ -1076,6 +1171,7 @@ function renderLobby(box) {
     </div>
     <div class="hint">终局计分：你的最终分 = 所有人给你的评分，按「打分人的金币占比」加权平均（1~5 分）。金币越多的人，他的评价权重越大。</div>
   </div>`;
+  restoreInputs(box, snap);
 }
 
 function pushConfig() {

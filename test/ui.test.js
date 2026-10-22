@@ -383,5 +383,48 @@ console.log('\n[UI-17] 大厅：网络房间有标记，可凭房号加入');
   ok(create && create.public === false, '没勾"开放到网络"时如实下发 public:false');
 }
 
+console.log('\n[UI-18] 输入框不能被后台刷新冲掉');
+{
+  // 起因：大厅每 5 秒刷一次房间列表，而 renderHall 是整块 innerHTML 重建，
+  // 于是"房间名打到一半 → 内容被清空、光标丢失"，中文输入法的组合也会被掐断。
+  const st = E.publicState(E.createRoom({}));
+  const { w, inst } = bootAs(st, { you: { pid: 'p1', spectate: false } });
+  inst.onmessage({ data: JSON.stringify({ type: 'hello', roomId: null, rooms: [], relay: false }) });
+
+  const room = { id: 'ABCD', name: '别人的房间', seats: 10, humans: 2, phase: 'lobby', round: 0, playing: false, locked: false, createdAt: 1, online: false };
+  const nameEl = $(w, 'hallName');
+  const seatEl = $(w, 'hallSeats');
+  nameEl.focus();
+  nameEl.value = '阿伟的房';
+  nameEl.setSelectionRange(3, 3);
+
+  inst.onmessage({ data: JSON.stringify({ type: 'rooms', relay: false, rooms: [room] }) });
+  const after = $(w, 'hallName');
+  ok(after.value === '阿伟的房', '刷新房间列表后，房间名里填的内容还在');
+  ok(w.document.activeElement === after, '焦点还留在房间名输入框上');
+  ok(after.selectionStart === 3, '光标位置也没被挪走');
+  ok(w.document.body.textContent.includes('ABCD'), '房间列表照常更新了');
+  // 光值还在不够：整块重建会把输入框换成新节点，中文输入法打到一半的组合会被掐断。
+  // 所以定时刷新必须只换列表那一块，建房区的输入框连节点都不能动。
+  ok($(w, 'hallName') === nameEl && $(w, 'hallSeats') === seatEl,
+     '刷新只重建房间列表那一块，建房输入框是同一个节点（输入法不会被打断）');
+
+  // 再刷一次，这次列表真变了（别人又建了房）：反复重建也不能把内容吞掉
+  inst.onmessage({ data: JSON.stringify({ type: 'rooms', relay: false, rooms: [
+    room, { id: 'EFGH', name: '第二间', seats: 10, humans: 1, phase: 'lobby', round: 0, playing: false, locked: false, createdAt: 2, online: false },
+  ] }) });
+  ok($(w, 'hallName').value === '阿伟的房', '列表又变了一次，填到一半的房间名照样还在');
+  ok($(w, 'hallName').selectionStart === 3, '反复重建后光标仍在原处');
+
+  // 进房后的建房页也一样：服务端推状态会重建配置区，不能把改了一半的设置冲掉
+  const b2 = bootAs(E.publicState(E.createRoom({})), { you: { pid: 'p1', spectate: false } });
+  const seats = $(b2.w, 'cfgSeats');
+  ok(!!seats, '进房后能看到建房配置区');
+  seats.focus();
+  seats.value = '8';
+  b2.inst.onmessage({ data: JSON.stringify({ type: 'state', roomId: 'ABCD', state: E.publicState(E.createRoom({})) }) });
+  ok($(b2.w, 'cfgSeats').value === '8', '服务端推状态时，改了一半的席位不会被冲回默认值');
+}
+
 console.log(fail === 0 ? '\n前端全部通过\n' : `\n${fail} 项未通过\n`);
 process.exit(fail === 0 ? 0 : 1);
